@@ -167,5 +167,7 @@ pip install -r requirements.txt
 For technical guidance, algorithmic logic inquiries, or anomaly reporting within the FSM pipeline, please contact the primary developer:
 
 **Aashish Srinivasan**
+
 Senior Product Development Engineer | Lifesigns
+
 Email: aashish.srinivasan@lifesigns.in
