@@ -1,6 +1,21 @@
-numpy
-scipy
-sounddevice
-matplotlib
-customtkinter
-wfdb
+# ECG Simulator Workstation Dependencies
+# Python 3.8+ recommended
+
+# UI Frameworks
+customtkinter>=5.2.2
+
+# Math and Signal Processing
+numpy>=1.21.0
+
+# Hardware Audio Interface
+sounddevice>=0.4.6
+
+# PhysioNet Database Access
+wfdb>=4.1.0
+
+# Plotting and Rendering Engine
+pyqtgraph>=0.13.3
+PyQt5>=5.15.9
+
+# Note: multiprocessing, os, sys, json, threading, queue, and datetime 
+# are part of the Python Standard Library and do not need to be installed.
