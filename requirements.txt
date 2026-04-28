@@ -1,8 +1,11 @@
-# ECG Simulator Workstation Dependencies
+# ECG Simulator Workstation Dependencies (v6.0 Web Architecture)
 # Python 3.8+ recommended
 
-# UI Frameworks
-customtkinter>=5.2.2
+# High-Performance Asynchronous Web Framework
+fastapi>=0.100.0
+uvicorn[standard]>=0.23.0
+websockets>=11.0.3
+pydantic>=2.0.0
 
 # Math and Signal Processing
 numpy>=1.21.0
@@ -13,9 +16,5 @@ sounddevice>=0.4.6
 # PhysioNet Database Access
 wfdb>=4.1.0
 
-# Plotting and Rendering Engine
-pyqtgraph>=0.13.3
-PyQt5>=5.15.9
-
-# Note: multiprocessing, os, sys, json, threading, queue, and datetime 
+# Note: os, sys, json, re, threading, queue, asyncio, and datetime 
 # are part of the Python Standard Library and do not need to be installed.

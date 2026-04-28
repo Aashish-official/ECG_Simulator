@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ECG Simulator Web Workstation</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background-color: #0b0f19; color: #e2e8f0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        .panel { background-color: #111827; border: 1px solid #1f2937; border-radius: 0.5rem; padding: 1rem; }
+        .canvas-container { background-color: #000000; border: 2px solid #1a2a1a; border-radius: 0.5rem; overflow: hidden; position: relative;}
+        
+        /* Custom scrollbar for clean dark mode */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #0b0f19; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #475569; }
+
+        /* FIX: Force OS to render select options with a solid dark background */
+        select option {
+            background-color: #0f172a; /* Solid dark slate */
+            color: #e2e8f0;            /* Light gray text */
+        }
+    </style>
+</head>
+<body class="h-screen flex flex-col overflow-hidden">
+
+    <!-- Top Header -->
+    <header class="bg-gray-900 border-b border-gray-800 p-4 flex justify-between items-center z-10 shadow-lg">
+        <div class="flex items-center space-x-3">
+            <div class="w-3 h-3 bg-emerald-500 rounded-full animate-pulse"></div>
+            <h1 class="text-xl font-bold text-emerald-400 tracking-wide">ECG SIMULATOR <span class="text-gray-500 text-sm font-normal">v3.0.0 Web Edition</span></h1>
+        </div>
+        <div class="flex space-x-4">
+            <div id="connStatus" class="px-3 py-1 rounded text-xs font-bold bg-gray-800 text-red-400 border border-red-900">DISCONNECTED</div>
+        </div>
+    </header>
+
+    <!-- Main Workspace -->
+    <div class="flex flex-1 overflow-hidden">
+        
+        <!-- Controls Sidebar -->
+        <aside class="w-96 overflow-y-auto p-4 space-y-6 bg-gray-900/50">
+            
+            <!-- Mode & Waveform -->
+            <div class="panel">
+                <h2 class="text-sm font-bold text-gray-400 mb-3 uppercase tracking-wider">Operation Mode</h2>
+                <div class="flex space-x-1 bg-gray-800 p-1 rounded-lg mb-4">
+                    <button onclick="setMode('Synthetic')" id="btnSynthetic" class="flex-1 py-1.5 text-sm rounded-md bg-emerald-600/20 text-emerald-400 font-medium transition-colors">Synthetic</button>
+                    <button onclick="setMode('MIT-BIH')" id="btnMIT" class="flex-1 py-1.5 text-sm rounded-md text-gray-400 hover:text-gray-200 transition-colors">MIT-BIH</button>
+                    <button onclick="setMode('JSON-ECG')" id="btnJSON" class="flex-1 py-1.5 text-sm rounded-md text-gray-400 hover:text-gray-200 transition-colors">JSON-ECG</button>
+                </div>
+                <select id="selWaveform" onchange="updateString('waveform', this.value)" class="w-full bg-gray-800 border border-gray-700 text-white text-sm rounded-lg block p-2.5 focus:ring-emerald-500 focus:border-emerald-500 outline-none">
+                    <option value="Normal Sinus Rhythm (NSR)">Normal Sinus Rhythm (NSR)</option>
+                    <option value="Occasional PAC">Occasional PAC</option>
+                    <option value="Occasional PVC (Unifocal)">Occasional PVC (Unifocal)</option>
+                    <option value="Occasional PVC (Multifocal)">Occasional PVC (Multifocal)</option>
+                    <option value="Atrial Bigeminy">Atrial Bigeminy</option>
+                    <option value="Atrial Trigeminy">Atrial Trigeminy</option>
+                    <option value="Ventricular Bigeminy">Ventricular Bigeminy</option>
+                    <option value="Ventricular Trigeminy">Ventricular Trigeminy</option>
+                    <option value="Atrial Fibrillation (AFib)">Atrial Fibrillation (AFib)</option>
+                    <option value="Atrial Flutter">Atrial Flutter</option>
+                    <option value="Ventricular Tachycardia (VTach)">Ventricular Tachycardia (VTach)</option>
+                    <option value="Ventricular Fibrillation (VFib)">Ventricular Fibrillation (VFib)</option>
+                    <option value="Asystole">Asystole</option>
+                    <option value="Sine Wave">Sine Wave</option>
+                    <option value="Square Wave">Square Wave</option>
+                    <option value="Sawtooth Wave">Sawtooth Wave</option>
+                </select>
+            </div>
+
+            <!-- Heart Rate -->
+            <div class="panel">
+                <div class="flex justify-between mb-1">
+                    <h2 class="text-sm font-bold text-gray-400 uppercase tracking-wider">Heart Rate / Freq</h2>
+                    <span class="text-xs text-gray-500">BPM/Hz</span>
+                </div>
+                <div class="flex items-center space-x-3 mt-2">
+                    <input type="range" id="slBPM" min="10" max="180" value="60" class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-emerald-500" oninput="document.getElementById('txtBPM').value = this.value; updateParam('bpm', this.value)">
+                    <input type="number" id="txtBPM" value="60" class="w-16 bg-gray-800 border border-gray-700 text-center text-sm rounded p-1 text-white outline-none" onchange="document.getElementById('slBPM').value = this.value; updateParam('bpm', this.value)">
+                </div>
+            </div>
+
+            <!-- Morphology -->
+            <div class="panel" id="pnlMorph">
+                <h2 class="text-sm font-bold text-gray-400 mb-3 uppercase tracking-wider">Morphology Controls</h2>
+                <div class="space-y-4">
+                    <div class="flex items-center justify-between text-sm"><span class="w-24">P-Wave Amp</span>
+                        <input type="range" id="slP" min="0.0" max="0.5" step="0.01" value="0.15" class="w-full mx-2 h-1.5 bg-gray-700 rounded-lg appearance-none" oninput="updateVal('valP', this.value); updateParam('p_amp', this.value)">
+                        <span id="valP" class="w-8 text-right text-gray-400">0.15</span></div>
+                    <div class="flex items-center justify-between text-sm"><span class="w-24">Q-Wave Depth</span>
+                        <input type="range" id="slQ" min="-1.0" max="0.0" step="0.01" value="-0.15" class="w-full mx-2 h-1.5 bg-gray-700 rounded-lg appearance-none" oninput="updateVal('valQ', this.value); updateParam('q_amp', this.value)">
+                        <span id="valQ" class="w-8 text-right text-gray-400">-0.15</span></div>
+                    <div class="flex items-center justify-between text-sm"><span class="w-24">T-Wave Amp</span>
+                        <input type="range" id="slT" min="-0.5" max="1.0" step="0.01" value="0.30" class="w-full mx-2 h-1.5 bg-gray-700 rounded-lg appearance-none" oninput="updateVal('valT', this.value); updateParam('t_amp', this.value)">
+                        <span id="valT" class="w-8 text-right text-gray-400">0.30</span></div>
+                    <div class="flex items-center justify-between text-sm"><span class="w-24">ST Elevation</span>
+                        <input type="range" id="slST" min="-0.5" max="0.5" step="0.01" value="0.0" class="w-full mx-2 h-1.5 bg-gray-700 rounded-lg appearance-none" oninput="updateVal('valST', this.value); updateParam('st_shift', this.value)">
+                        <span id="valST" class="w-8 text-right text-gray-400">0.00</span></div>
+                    <div class="flex items-center justify-between text-sm"><span class="w-24 text-orange-300">Ectopics/Min</span>
+                        <input type="range" id="slEctopy" min="0" max="30" step="1" value="5" class="w-full mx-2 h-1.5 bg-orange-900 rounded-lg appearance-none accent-orange-500" oninput="updateVal('valEctopy', this.value); updateParam('ectopics_per_min', this.value)">
+                        <span id="valEctopy" class="w-8 text-right text-orange-300">5</span></div>
+                </div>
+            </div>
+
+            <!-- Gain & Calibration -->
+            <div class="panel bg-blue-900/10 border-blue-900/50">
+                <div class="flex justify-between items-center mb-3">
+                    <h2 class="text-sm font-bold text-blue-400 uppercase tracking-wider">Signal Amplitude</h2>
+                    <span id="valGain" class="text-xs text-blue-300 font-bold bg-blue-900/30 px-2 py-0.5 rounded">Gain: 20%</span>
+                </div>
+                <input type="range" id="slGain" min="0" max="5" step="0.05" value="1.0" class="w-full h-2 bg-gray-700 rounded-lg appearance-none mb-4" oninput="onGainChange(this.value)">
+                <button id="btnCalib" onclick="toggleCalibration()" class="w-full py-2 bg-gray-700 hover:bg-gray-600 text-sm font-bold text-white rounded transition-colors shadow-sm">Step 1: Calibrate Hardware</button>
+            </div>
+
+            <!-- EDR / Respiratory -->
+            <div class="panel">
+                <h2 class="text-sm font-bold text-purple-400 mb-3 uppercase tracking-wider">Resp Modulation (EDR)</h2>
+                <div class="space-y-4">
+                    <div class="flex items-center space-x-2 mt-2 mb-4">
+                        <span class="text-sm text-gray-300 w-24">Resp Rate</span>
+                        <input type="range" id="slRPM" min="0" max="40" value="15" class="w-full h-1.5 bg-gray-700 rounded-lg appearance-none" oninput="document.getElementById('txtRPM').value = this.value; updateParam('resp_rate', this.value)">
+                        <input type="number" id="txtRPM" value="15" class="w-12 bg-gray-800 border border-gray-700 text-center text-xs rounded p-1 text-white outline-none" onchange="document.getElementById('slRPM').value = this.value; updateParam('resp_rate', this.value)">
+                    </div>
+                    <div class="flex items-center justify-between text-sm"><span class="w-24 text-gray-400">RSA (BPM)</span>
+                        <input type="range" id="slRSA" min="0.0" max="20.0" step="0.5" value="0.0" class="w-full mx-2 h-1.5 bg-gray-700 rounded-lg appearance-none" oninput="updateVal('valRSA', this.value); updateParam('rsa_depth', this.value)">
+                        <span id="valRSA" class="w-8 text-right text-gray-500">0.0</span></div>
+                    <div class="flex items-center justify-between text-sm"><span class="w-24 text-gray-400">Thoracic AM</span>
+                        <input type="range" id="slAM" min="0.0" max="0.5" step="0.01" value="0.0" class="w-full mx-2 h-1.5 bg-gray-700 rounded-lg appearance-none" oninput="updateVal('valAM', Math.round(this.value*100)+'%'); updateParam('resp_am_depth', this.value)">
+                        <span id="valAM" class="w-8 text-right text-gray-500">0%</span></div>
+                    <div class="flex items-center justify-between text-sm"><span class="w-24 text-gray-400">Wander (mV)</span>
+                        <input type="range" id="slWander" min="0.0" max="1.0" step="0.05" value="0.0" class="w-full mx-2 h-1.5 bg-gray-700 rounded-lg appearance-none" oninput="updateVal('valWander', this.value); updateParam('resp_wander_mv', this.value)">
+                        <span id="valWander" class="w-8 text-right text-gray-500">0.0</span></div>
+                </div>
+            </div>
+            
+            <!-- MIT DB -->
+            <div class="panel bg-slate-900/50">
+                <h2 class="text-sm font-bold text-slate-400 mb-2 uppercase tracking-wider">MIT-BIH Database</h2>
+                <div class="flex space-x-2">
+                    <select id="selMIT" class="w-full bg-slate-800 border border-slate-700 text-xs rounded p-2 text-white outline-none">
+                        <option value="">Loading records...</option>
+                    </select>
+                    <button onclick="loadMIT()" class="px-3 py-2 bg-slate-700 hover:bg-slate-600 rounded text-xs font-bold text-white transition-colors">Load</button>
+                </div>
+                <p id="lblMITStatus" class="text-[10px] text-slate-500 mt-2 h-3 text-center"></p>
+            </div>
+
+            <!-- JSON DB -->
+            <div class="panel bg-emerald-900/10 border-emerald-900/30">
+                <div class="flex justify-between items-center mb-2">
+                    <h2 class="text-sm font-bold text-emerald-500 uppercase tracking-wider">JSON Data</h2>
+                    <button onclick="scanJSON()" class="text-xs px-2 py-1 bg-emerald-900/50 hover:bg-emerald-800/80 rounded text-emerald-400 transition-colors">Rescan</button>
+                </div>
+                <div class="flex space-x-2">
+                    <select id="selJSON" class="w-full bg-emerald-900/20 border border-emerald-900/50 text-xs rounded p-2 text-white outline-none">
+                        <option value="">Scan to load files...</option>
+                    </select>
+                    <button id="btnLoadJSON" onclick="loadJSON()" class="px-3 py-2 bg-emerald-700 hover:bg-emerald-600 rounded text-xs font-bold text-white transition-colors" disabled>Load</button>
+                </div>
+                <p id="lblJSONStatus" class="text-[10px] text-emerald-600/70 mt-2 h-3 text-center"></p>
+            </div>
+
+        </aside>
+
+        <!-- Monitor Area -->
+        <main class="flex-1 p-6 flex flex-col bg-black">
+            <div class="bg-gray-900 rounded-t-lg border-b border-gray-800 px-4 py-2 flex justify-between items-center">
+                <span class="text-emerald-500 font-mono font-bold text-lg tracking-widest drop-shadow-[0_0_8px_rgba(16,185,129,0.5)]">LEAD II</span>
+                <span class="text-red-500 font-mono font-bold text-sm tracking-widest flex items-center gap-2">
+                    <span class="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span> LIVE
+                </span>
+            </div>
+            <!-- Canvas bounds perfectly to flex parent -->
+            <div class="canvas-container flex-1 w-full" id="canvasWrapper">
+                <canvas id="gridCanvas" class="absolute inset-0 pointer-events-none"></canvas>
+                <canvas id="ecgCanvas" class="absolute inset-0 pointer-events-none"></canvas>
+            </div>
+        </main>
+
+    </div>
+
+    <script>
+        // --- 1. REST API Functions ---
+        async function updateParam(param, value) {
+            await fetch('/api/update_param', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({param: param, value: parseFloat(value)})
+            });
+        }
+        
+        async function updateString(param, value) {
+            await fetch('/api/update_string', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({param: param, value: value})
+            });
+        }
+
+        function updateVal(id, val) { document.getElementById(id).innerText = val; }
+
+        let isCalibrated = false;
+        function onGainChange(val) {
+            updateParam('target_mv', val);
+            const lbl = document.getElementById('valGain');
+            if(isCalibrated) lbl.innerText = `Output: ${parseFloat(val).toFixed(2)} mV`;
+            else lbl.innerText = `Gain: ${Math.round((val/5.0)*100)}%`;
+        }
+
+        async function toggleCalibration() {
+            const res = await fetch('/api/toggle_calibration', {method: 'POST'});
+            const data = await res.json();
+            const btn = document.getElementById('btnCalib');
+            const sl = document.getElementById('slGain');
+            
+            if(data.mode === "Calibration") {
+                isCalibrated = false;
+                btn.innerText = "CONFIRM 1mV ON SCOPE";
+                btn.className = "w-full py-2 bg-red-600 hover:bg-red-500 text-sm font-bold text-white rounded transition-colors shadow-[0_0_15px_rgba(220,38,38,0.5)]";
+                sl.max = 1.0; sl.value = 0.1;
+                onGainChange(0.1);
+                alert(data.msg);
+            } else {
+                isCalibrated = true;
+                btn.innerText = "Recalibrate System";
+                btn.className = "w-full py-2 bg-gray-700 hover:bg-gray-600 text-sm font-bold text-white rounded transition-colors shadow-sm";
+                sl.max = 5.0; sl.value = 1.0;
+                onGainChange(1.0);
+            }
+        }
+
+        function setMode(mode) {
+            updateString('mode', mode);
+            // Visual toggle
+            const btns = {
+                'Synthetic': document.getElementById('btnSynthetic'),
+                'MIT-BIH': document.getElementById('btnMIT'),
+                'JSON-ECG': document.getElementById('btnJSON')
+            };
+            for(let key in btns) {
+                if(key === mode) {
+                    btns[key].className = "flex-1 py-1.5 text-sm rounded-md bg-emerald-600/20 text-emerald-400 font-medium transition-colors";
+                } else {
+                    btns[key].className = "flex-1 py-1.5 text-sm rounded-md text-gray-400 hover:text-gray-200 transition-colors";
+                }
+            }
+            
+            // Enable/Disable sections based on mode
+            const disabled = (mode !== 'Synthetic');
+            document.getElementById('selWaveform').disabled = disabled;
+            document.getElementById('slBPM').disabled = disabled;
+            document.getElementById('txtBPM').disabled = disabled;
+            
+            ['slP','slQ','slT','slST','slEctopy','slRPM','txtRPM','slRSA','slAM','slWander'].forEach(id => {
+                document.getElementById(id).disabled = disabled;
+            });
+            
+            // Re-apply waveform locks if returning to synthetic
+            if(!disabled) updateString('waveform', document.getElementById('selWaveform').value);
+        }
+
+        // --- Data Loaders ---
+        async function loadMITList() {
+            const res = await fetch('/api/mit_records');
+            const data = await res.json();
+            const sel = document.getElementById('selMIT');
+            sel.innerHTML = '';
+            for(let key in data) {
+                let opt = document.createElement('option');
+                opt.value = key;
+                opt.text = `${key} — ${data[key].desc}`;
+                sel.add(opt);
+            }
+        }
+        
+        async function loadMIT() {
+            const val = document.getElementById('selMIT').value;
+            const lbl = document.getElementById('lblMITStatus');
+            lbl.innerText = "Downloading from PhysioNet...";
+            const res = await fetch('/api/load_mit', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({param: "record", value: val})
+            });
+            const data = await res.json();
+            lbl.innerText = data.message;
+            if(data.success) setMode('MIT-BIH');
+        }
+
+        async function scanJSON() {
+            const sel = document.getElementById('selJSON');
+            const btn = document.getElementById('btnLoadJSON');
+            const lbl = document.getElementById('lblJSONStatus');
+            sel.innerHTML = '<option value="">Scanning local directory...</option>';
+            btn.disabled = true;
+            lbl.innerText = "";
+            
+            const res = await fetch('/api/scan_json');
+            const files = await res.json();
+            
+            sel.innerHTML = '';
+            if(files.length === 0) {
+                sel.innerHTML = '<option value="">No files found in json_data/</option>';
+            } else {
+                files.forEach(f => {
+                    let opt = document.createElement('option');
+                    opt.value = f.filepath;
+                    opt.text = `${f.admission_id} | Fac: ${f.facility_id}`;
+                    sel.add(opt);
+                });
+                btn.disabled = false;
+                lbl.innerText = `${files.length} files found.`;
+            }
+        }
+        
+        async function loadJSON() {
+            const val = document.getElementById('selJSON').value;
+            const lbl = document.getElementById('lblJSONStatus');
+            lbl.innerText = "Parsing ECG arrays...";
+            const res = await fetch('/api/load_json', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({param: "filepath", value: val})
+            });
+            const data = await res.json();
+            if(data.success) {
+                lbl.innerText = data.message;
+                lbl.className = "text-[10px] text-emerald-500 mt-2 h-3 text-center";
+                setMode('JSON-ECG');
+            } else {
+                lbl.innerText = "Error: " + data.message;
+                lbl.className = "text-[10px] text-red-500 mt-2 h-3 text-center";
+            }
+        }
+
+        // --- 2. Canvas & WebSocket Engine ---
+        const VISUAL_FS = 600;
+        const WIN_SEC = 6;
+        const MAX_PTS = VISUAL_FS * WIN_SEC;
+        const y_data = new Float32Array(MAX_PTS);
+        y_data.fill(NaN);
+        let scan_idx = 0;
+        const gap_size = Math.floor(VISUAL_FS * 0.3); // 300ms gap
+
+        const gridCanvas = document.getElementById('gridCanvas');
+        const ecgCanvas = document.getElementById('ecgCanvas');
+        const gridCtx = gridCanvas.getContext('2d', {alpha: false});
+        const ecgCtx = ecgCanvas.getContext('2d');
+        const wrapper = document.getElementById('canvasWrapper');
+
+        function resizeCanvases() {
+            const w = wrapper.clientWidth;
+            const h = wrapper.clientHeight;
+            gridCanvas.width = w; gridCanvas.height = h;
+            ecgCanvas.width = w; ecgCanvas.height = h;
+            drawClinicalGrid(w, h);
+        }
+        window.addEventListener('resize', resizeCanvases);
+
+        function drawClinicalGrid(w, h) {
+            gridCtx.fillStyle = '#000000';
+            gridCtx.fillRect(0, 0, w, h);
+            
+            const minorColor = '#142414';
+            const majorColor = '#204420';
+            
+            // X-Axis (Time)
+            const num_x = parseInt(WIN_SEC / 0.04) + 1;
+            const minor_x_step = w / ((WIN_SEC / 0.04));
+            
+            for(let i=0; i<num_x; i++) {
+                gridCtx.beginPath();
+                let x = i * minor_x_step;
+                gridCtx.moveTo(x, 0);
+                gridCtx.lineTo(x, h);
+                gridCtx.strokeStyle = (i % 5 === 0) ? majorColor : minorColor;
+                gridCtx.lineWidth = (i % 5 === 0) ? 1.5 : 1;
+                gridCtx.stroke();
+            }
+
+            // Y-Axis (Voltage). Range ±1.5mV = 3.0mV. 30 minor lines.
+            const num_y = 31;
+            const minor_y_step = h / 30.0;
+            for(let i=0; i<num_y; i++) {
+                gridCtx.beginPath();
+                let y = i * minor_y_step;
+                gridCtx.moveTo(0, y);
+                gridCtx.lineTo(w, y);
+                gridCtx.strokeStyle = (i % 5 === 0) ? majorColor : minorColor;
+                gridCtx.lineWidth = (i % 5 === 0) ? 1.5 : 1;
+                gridCtx.stroke();
+            }
+
+            // Labels (z = -1 emulation)
+            gridCtx.fillStyle = "#3d6e3d";
+            gridCtx.font = "12px Consolas";
+            gridCtx.textBaseline = "bottom";
+            for(let i=1; i<WIN_SEC; i++) {
+                let x = (i / WIN_SEC) * w;
+                gridCtx.fillText(i + "s", x - 6, h - 5);
+            }
+            gridCtx.textBaseline = "middle";
+            [1.0, 0.0, -1.0].forEach(v => {
+                // Map [-1.5, 1.5] to [h, 0]
+                let y = h/2 - (v * h / 3.0);
+                gridCtx.fillText(v.toFixed(1) + " mV", 10, y - 10);
+            });
+        }
+
+        // Web Socket Connection for pure binary speed
+        function connectWebSocket() {
+            const ws = new WebSocket(`ws://${window.location.host}/ws/ecg`);
+            ws.binaryType = "arraybuffer";
+            const statusBadge = document.getElementById('connStatus');
+
+            ws.onopen = () => {
+                statusBadge.innerText = "CONNECTED";
+                statusBadge.className = "px-3 py-1 rounded text-xs font-bold bg-emerald-900/50 text-emerald-400 border border-emerald-800";
+            };
+            ws.onclose = () => {
+                statusBadge.innerText = "RECONNECTING...";
+                statusBadge.className = "px-3 py-1 rounded text-xs font-bold bg-orange-900/50 text-orange-400 border border-orange-800 animate-pulse";
+                setTimeout(connectWebSocket, 1000);
+            };
+
+            ws.onmessage = (e) => {
+                // Instantly unpack C-bytes to Floats
+                const chunk = new Float32Array(e.data);
+                const n = chunk.length;
+                if(n === 0) return;
+
+                // Patient Monitor Sweep Logic
+                if (scan_idx + n < MAX_PTS) {
+                    y_data.set(chunk, scan_idx);
+                    let gap_end = scan_idx + n + gap_size;
+                    if (gap_end < MAX_PTS) {
+                        y_data.fill(NaN, scan_idx + n, gap_end);
+                    } else {
+                        y_data.fill(NaN, scan_idx + n, MAX_PTS);
+                        y_data.fill(NaN, 0, gap_end - MAX_PTS);
+                    }
+                    scan_idx += n;
+                } else {
+                    let space = MAX_PTS - scan_idx;
+                    y_data.set(chunk.subarray(0, space), scan_idx);
+                    let rem = n - space;
+                    y_data.set(chunk.subarray(space), 0);
+                    
+                    let gap_end = rem + gap_size;
+                    if (gap_end < MAX_PTS) {
+                        y_data.fill(NaN, rem, gap_end);
+                    } else {
+                        y_data.fill(NaN, rem, MAX_PTS);
+                        y_data.fill(NaN, 0, gap_end - MAX_PTS);
+                    }
+                    scan_idx = rem;
+                }
+            };
+        }
+
+        // High-performance 60fps render loop
+        function renderLoop() {
+            const w = ecgCanvas.width;
+            const h = ecgCanvas.height;
+            ecgCtx.clearRect(0, 0, w, h);
+            
+            ecgCtx.beginPath();
+            ecgCtx.strokeStyle = '#00ee00';
+            ecgCtx.lineWidth = 2;
+            ecgCtx.lineJoin = 'round';
+            
+            let first = true;
+            for(let i=0; i<MAX_PTS; i++) {
+                let val = y_data[i];
+                if(isNaN(val)) { 
+                    first = true; 
+                    continue; 
+                }
+                let x = i * (w / MAX_PTS);
+                let y = h/2 - (val * h / 3.0); // Map ±1.5mV to pixel height
+                
+                if(first) {
+                    ecgCtx.moveTo(x, y);
+                    first = false;
+                } else {
+                    ecgCtx.lineTo(x, y);
+                }
+            }
+            ecgCtx.stroke();
+            requestAnimationFrame(renderLoop);
+        }
+
+        // Init
+        window.onload = () => {
+            resizeCanvases();
+            loadMITList();
+            scanJSON();
+            connectWebSocket();
+            requestAnimationFrame(renderLoop);
+        };
+    </script>
+</body>
+</html>
