@@ -19,10 +19,11 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from contextlib import asynccontextmanager
 
 # ─── AUDIO / VISUAL CONFIGURATION ────────────────────────────────────────────
 SAMPLE_RATE       = 48000
-BLOCK_SIZE        = 2048
+BLOCK_SIZE        = 8192
 MIT_RESAMPLE_RATE = 360
 JSON_DEFAULT_FS   = 250
 VISUAL_DOWNSAMPLE = 80          # Decimation: 48000/80 = 600 visual Hz
@@ -358,21 +359,22 @@ class SignalEngine:
 #  FASTAPI SERVER
 # ═════════════════════════════════════════════════════════════════════════════
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup logic
+    audio_stream.start()
+    print("[Audio] SoundDevice Stream Started.")
+    yield
+    # Shutdown logic
+    audio_stream.stop()
+    audio_stream.close()
+    print("[Audio] SoundDevice Stream Stopped.")
+
+app = FastAPI(lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 engine = SignalEngine()
 audio_stream = sd.OutputStream(channels=1, samplerate=SAMPLE_RATE, blocksize=BLOCK_SIZE, callback=engine.audio_callback, dtype="float32")
-
-@app.on_event("startup")
-async def startup_event():
-    audio_stream.start()
-    print("[Audio] SoundDevice Stream Started.")
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    audio_stream.stop()
-    audio_stream.close()
 
 # Models
 class ParamUpdate(BaseModel):
