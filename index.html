@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ECG Simulator Web Workstation</title>
+    <link rel="icon" href="/favicon.ico" type="image/png">
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         body { background-color: #0b0f19; color: #e2e8f0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
@@ -153,6 +154,10 @@
                     <h2 class="text-sm font-bold text-emerald-500 uppercase tracking-wider">JSON Data</h2>
                     <button onclick="scanJSON()" class="text-xs px-2 py-1 bg-emerald-900/50 hover:bg-emerald-800/80 rounded text-emerald-400 transition-colors">Rescan</button>
                 </div>
+                <div class="flex items-center gap-2 mb-2">
+                    <input id="txtJSONFilter" type="search" placeholder="Search files (partial, case-insensitive)" class="flex-1 bg-emerald-900/20 border border-emerald-900/50 text-xs rounded p-2 text-white outline-none" oninput="filterJSONOptions()">
+                    <button onclick="resetJSONCheckmarks()" class="text-xs px-2 py-1 bg-emerald-800/70 hover:bg-emerald-700 rounded text-white transition-colors">Clear Checkmarks</button>
+                </div>
                 <div class="flex space-x-2">
                     <select id="selJSON" class="w-full bg-emerald-900/20 border border-emerald-900/50 text-xs rounded p-2 text-white outline-none">
                         <option value="">Scan to load files...</option>
@@ -262,6 +267,9 @@
         }
 
         // --- Data Loaders ---
+        let jsonFiles = [];
+        let jsonFilter = '';
+
         async function loadMITList() {
             const res = await fetch('/api/mit_records');
             const data = await res.json();
@@ -275,6 +283,37 @@
             }
         }
         
+        function renderJSONOptions() {
+            const sel = document.getElementById('selJSON');
+            sel.innerHTML = '';
+            const normalizedFilter = jsonFilter.trim().toLowerCase();
+            const filtered = jsonFiles.filter(f => {
+                if(!normalizedFilter) return true;
+                return [f.fname, f.admission_id, f.facility_id].some(value => value.toLowerCase().includes(normalizedFilter));
+            });
+            if(filtered.length === 0) {
+                let opt = document.createElement('option');
+                opt.value = '';
+                opt.text = 'No matching files';
+                sel.add(opt);
+                document.getElementById('btnLoadJSON').disabled = true;
+                return;
+            }
+            filtered.forEach(f => {
+                let opt = document.createElement('option');
+                opt.value = f.filepath;
+                const prefix = f.checked ? '✅ ' : '';
+                opt.text = `${prefix}${f.fname} — ${f.admission_id} | Fac: ${f.facility_id}`;
+                sel.add(opt);
+            });
+            document.getElementById('btnLoadJSON').disabled = filtered.length === 0;
+        }
+
+        function filterJSONOptions() {
+            jsonFilter = document.getElementById('txtJSONFilter').value || '';
+            renderJSONOptions();
+        }
+
         async function loadMIT() {
             const val = document.getElementById('selMIT').value;
             const lbl = document.getElementById('lblMITStatus');
@@ -299,18 +338,12 @@
             
             const res = await fetch('/api/scan_json');
             const files = await res.json();
-            
-            sel.innerHTML = '';
+            jsonFiles = files;
+            jsonFilter = document.getElementById('txtJSONFilter').value || '';
+            renderJSONOptions();
             if(files.length === 0) {
-                sel.innerHTML = '<option value="">No files found in json_data/</option>';
+                lbl.innerText = "No files found in json_data/.";
             } else {
-                files.forEach(f => {
-                    let opt = document.createElement('option');
-                    opt.value = f.filepath;
-                    opt.text = `${f.admission_id} | Fac: ${f.facility_id}`;
-                    sel.add(opt);
-                });
-                btn.disabled = false;
                 lbl.innerText = `${files.length} files found.`;
             }
         }
@@ -318,6 +351,11 @@
         async function loadJSON() {
             const val = document.getElementById('selJSON').value;
             const lbl = document.getElementById('lblJSONStatus');
+            if(!val) {
+                lbl.innerText = "Please select a JSON file first.";
+                lbl.className = "text-[10px] text-yellow-300 mt-2 h-3 text-center";
+                return;
+            }
             lbl.innerText = "Parsing ECG arrays...";
             const res = await fetch('/api/load_json', {
                 method: 'POST',
@@ -328,9 +366,25 @@
             if(data.success) {
                 lbl.innerText = data.message;
                 lbl.className = "text-[10px] text-emerald-500 mt-2 h-3 text-center";
+                await scanJSON();
                 setMode('JSON-ECG');
             } else {
                 lbl.innerText = "Error: " + data.message;
+                lbl.className = "text-[10px] text-red-500 mt-2 h-3 text-center";
+            }
+        }
+
+        async function resetJSONCheckmarks() {
+            const lbl = document.getElementById('lblJSONStatus');
+            lbl.innerText = "Resetting checkmarks...";
+            const res = await fetch('/api/reset_json_checkmarks', {method: 'POST'});
+            const data = await res.json();
+            if(data.success) {
+                lbl.innerText = data.message;
+                lbl.className = "text-[10px] text-emerald-500 mt-2 h-3 text-center";
+                await scanJSON();
+            } else {
+                lbl.innerText = "Unable to reset checkmarks.";
                 lbl.className = "text-[10px] text-red-500 mt-2 h-3 text-center";
             }
         }

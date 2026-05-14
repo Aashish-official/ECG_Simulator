@@ -9,6 +9,7 @@ import json
 import math
 import queue
 import asyncio
+import base64
 from datetime import datetime
 
 import numpy as np
@@ -16,7 +17,7 @@ import sounddevice as sd
 import wfdb
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
@@ -30,6 +31,49 @@ VISUAL_DOWNSAMPLE = 80          # Decimation: 48000/80 = 600 visual Hz
 WINDOW_SECONDS    = 6           
 
 JSON_DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "json_data")
+JSON_MARKS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "json_checkmarks.json")
+FAVICON_PNG_BASE64 = (
+    "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAHUlEQVR4nGOU2zftPwMFgIkSzaMGjBow"
+    "asBgMgAAKV4Ckb3Eq28AAAAASUVORK5CYII="
+)
+
+# ─── PERSISTENT JSON CHECKMARK STORAGE ────────────────────────────────────────
+
+def _json_mark_key(filepath: str) -> str:
+    try:
+        return os.path.relpath(os.path.abspath(filepath), JSON_DATA_DIR)
+    except Exception:
+        return os.path.basename(filepath)
+
+
+def load_json_checkmarks() -> dict:
+    if not os.path.exists(JSON_MARKS_FILE):
+        return {"checked": {}}
+    try:
+        with open(JSON_MARKS_FILE, "r", encoding="utf-8") as fh:
+            payload = json.load(fh)
+            if isinstance(payload, dict) and "checked" in payload:
+                return {"checked": dict(payload.get("checked", {}))}
+    except Exception:
+        pass
+    return {"checked": {}}
+
+
+def save_json_checkmarks(checks: dict) -> None:
+    os.makedirs(os.path.dirname(JSON_MARKS_FILE), exist_ok=True)
+    with open(JSON_MARKS_FILE, "w", encoding="utf-8") as fh:
+        json.dump({"checked": checks}, fh, indent=2)
+
+
+def mark_json_file_checked(filepath: str) -> None:
+    key = _json_mark_key(filepath)
+    payload = load_json_checkmarks()
+    payload["checked"][key] = True
+    save_json_checkmarks(payload["checked"])
+
+
+def reset_json_checkmarks() -> None:
+    save_json_checkmarks({})
 
 # ─── MIT-BIH DATABASE MAP ────────────────────────────────────────────────────
 MIT_RECORDS = {
@@ -50,6 +94,7 @@ MIT_RECORDS = {
 def fast_scan_and_parse_directory() -> list:
     """High-performance scanner utilizing Regex to bypass heavy JSON deserialization."""
     os.makedirs(JSON_DATA_DIR, exist_ok=True)
+    checkmarks = load_json_checkmarks().get("checked", {})
     out = []
     try: 
         files = sorted(f for f in os.listdir(JSON_DATA_DIR) if f.lower().endswith(".json"))
@@ -58,6 +103,7 @@ def fast_scan_and_parse_directory() -> list:
         
     for fname in files:
         fpath = os.path.join(JSON_DATA_DIR, fname)
+        key = _json_mark_key(fpath)
         try:
             with open(fpath, "r", encoding="utf-8") as fh:
                 content = fh.read()
@@ -66,7 +112,13 @@ def fast_scan_and_parse_directory() -> list:
             if '"ecg_records"' not in content or re.search(r'"ecg_records"\s*:\s*\[\s*\]', content):
                 continue
                 
-            meta = {"filepath": fpath, "fname": fname, "admission_id": "UNKNOWN", "facility_id": "—"}
+            meta = {
+                "filepath": fpath,
+                "fname": fname,
+                "admission_id": "UNKNOWN",
+                "facility_id": "—",
+                "checked": bool(checkmarks.get(key, False)),
+            }
             adm_match = re.search(r'"admission_id"\s*:\s*"([^"]+)"', content)
             if adm_match: meta["admission_id"] = adm_match.group(1)
             
@@ -75,7 +127,7 @@ def fast_scan_and_parse_directory() -> list:
             
             out.append(meta)
         except Exception as e:
-            out.append({"filepath": fpath, "fname": fname, "error": str(e)})
+            out.append({"filepath": fpath, "fname": fname, "error": str(e), "checked": bool(checkmarks.get(key, False))})
             
     return out
 
@@ -390,6 +442,11 @@ class StringUpdate(BaseModel):
 async def get_index():
     return FileResponse("index.html")
 
+@app.get("/favicon.ico")
+async def favicon():
+    icon_bytes = base64.b64decode(FAVICON_PNG_BASE64)
+    return Response(content=icon_bytes, media_type="image/png")
+
 @app.websocket("/ws/ecg")
 async def websocket_ecg(websocket: WebSocket):
     await websocket.accept()
@@ -434,7 +491,13 @@ async def load_json(data: StringUpdate):
     success, msg = await asyncio.to_thread(engine.load_json_record, data.value)
     if success:
         engine.mode = "JSON-ECG"
+        await asyncio.to_thread(mark_json_file_checked, data.value)
     return {"success": success, "message": msg}
+
+@app.post("/api/reset_json_checkmarks")
+async def reset_json_checkmarks_endpoint():
+    await asyncio.to_thread(reset_json_checkmarks)
+    return {"success": True, "message": "JSON file checkmarks have been reset."}
 
 @app.post("/api/toggle_calibration")
 async def toggle_calib():
