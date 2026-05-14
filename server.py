@@ -71,6 +71,13 @@ def mark_json_file_checked(filepath: str) -> None:
     payload["checked"][key] = True
     save_json_checkmarks(payload["checked"])
 
+def unmark_json_file_checked(filepath: str) -> None:
+    key = _json_mark_key(filepath)
+    payload = load_json_checkmarks()
+    if key in payload["checked"]:
+        del payload["checked"][key]
+    save_json_checkmarks(payload["checked"])
+
 
 def reset_json_checkmarks() -> None:
     save_json_checkmarks({})
@@ -498,6 +505,17 @@ async def load_json(data: StringUpdate):
 async def reset_json_checkmarks_endpoint():
     await asyncio.to_thread(reset_json_checkmarks)
     return {"success": True, "message": "JSON file checkmarks have been reset."}
+
+@app.post("/api/toggle_json_checkmark")
+async def toggle_json_checkmark(data: StringUpdate):
+    key = _json_mark_key(data.value)
+    payload = await asyncio.to_thread(load_json_checkmarks)
+    if key in payload["checked"]:
+        await asyncio.to_thread(unmark_json_file_checked, data.value)
+        return {"checked": False}
+    else:
+        await asyncio.to_thread(mark_json_file_checked, data.value)
+        return {"checked": True}
 
 @app.post("/api/toggle_calibration")
 async def toggle_calib():

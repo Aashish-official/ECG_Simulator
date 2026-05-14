@@ -159,9 +159,9 @@
                     <button onclick="resetJSONCheckmarks()" class="text-xs px-2 py-1 bg-emerald-800/70 hover:bg-emerald-700 rounded text-white transition-colors">Clear Checkmarks</button>
                 </div>
                 <div class="flex space-x-2">
-                    <select id="selJSON" class="w-full bg-emerald-900/20 border border-emerald-900/50 text-xs rounded p-2 text-white outline-none">
-                        <option value="">Scan to load files...</option>
-                    </select>
+                    <div id="jsonFileList" class="w-full bg-emerald-900/20 border border-emerald-900/50 text-xs rounded p-2 max-h-40 overflow-y-auto">
+                        <!-- Files will be rendered here -->
+                    </div>
                     <button id="btnLoadJSON" onclick="loadJSON()" class="px-3 py-2 bg-emerald-700 hover:bg-emerald-600 rounded text-xs font-bold text-white transition-colors" disabled>Load</button>
                 </div>
                 <p id="lblJSONStatus" class="text-[10px] text-emerald-600/70 mt-2 h-3 text-center"></p>
@@ -269,6 +269,7 @@
         // --- Data Loaders ---
         let jsonFiles = [];
         let jsonFilter = '';
+        let selectedFile = null;
 
         async function loadMITList() {
             const res = await fetch('/api/mit_records');
@@ -284,33 +285,61 @@
         }
         
         function renderJSONOptions() {
-            const sel = document.getElementById('selJSON');
-            sel.innerHTML = '';
+            const list = document.getElementById('jsonFileList');
+            list.innerHTML = '';
             const normalizedFilter = jsonFilter.trim().toLowerCase();
             const filtered = jsonFiles.filter(f => {
                 if(!normalizedFilter) return true;
                 return [f.fname, f.admission_id, f.facility_id].some(value => value.toLowerCase().includes(normalizedFilter));
             });
             if(filtered.length === 0) {
-                let opt = document.createElement('option');
-                opt.value = '';
-                opt.text = 'No matching files';
-                sel.add(opt);
+                list.innerHTML = '<div class="text-gray-400 text-xs p-2">No matching files</div>';
                 document.getElementById('btnLoadJSON').disabled = true;
                 return;
             }
             filtered.forEach(f => {
-                let opt = document.createElement('option');
-                opt.value = f.filepath;
-                const prefix = f.checked ? '✅ ' : '';
-                opt.text = `${prefix}${f.fname} — ${f.admission_id} | Fac: ${f.facility_id}`;
-                sel.add(opt);
+                const item = document.createElement('label');
+                item.className = 'flex items-center p-1 hover:bg-emerald-800/30 cursor-pointer';
+                if(selectedFile === f.filepath) item.classList.add('bg-emerald-700/50');
+                
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.checked = f.checked;
+                checkbox.className = 'mr-2';
+                checkbox.onchange = () => toggleCheckmark(f.filepath);
+                
+                const text = document.createElement('span');
+                text.textContent = `${f.fname} — ${f.admission_id} | Fac: ${f.facility_id}`;
+                text.className = 'flex-1 text-white text-xs';
+                text.onclick = () => selectFile(f.filepath);
+                
+                item.appendChild(checkbox);
+                item.appendChild(text);
+                list.appendChild(item);
             });
-            document.getElementById('btnLoadJSON').disabled = filtered.length === 0;
+            document.getElementById('btnLoadJSON').disabled = !selectedFile || !filtered.some(f => f.filepath === selectedFile);
         }
 
         function filterJSONOptions() {
             jsonFilter = document.getElementById('txtJSONFilter').value || '';
+            renderJSONOptions();
+        }
+
+        async function toggleCheckmark(filepath) {
+            const res = await fetch('/api/toggle_json_checkmark', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({param: "filepath", value: filepath})
+            });
+            const data = await res.json();
+            // Update local state
+            const file = jsonFiles.find(f => f.filepath === filepath);
+            if(file) file.checked = data.checked;
+            renderJSONOptions();
+        }
+
+        function selectFile(filepath) {
+            selectedFile = filepath;
             renderJSONOptions();
         }
 
@@ -329,10 +358,10 @@
         }
 
         async function scanJSON() {
-            const sel = document.getElementById('selJSON');
+            const list = document.getElementById('jsonFileList');
             const btn = document.getElementById('btnLoadJSON');
             const lbl = document.getElementById('lblJSONStatus');
-            sel.innerHTML = '<option value="">Scanning local directory...</option>';
+            list.innerHTML = '<div class="text-gray-400 text-xs p-2">Scanning local directory...</div>';
             btn.disabled = true;
             lbl.innerText = "";
             
@@ -340,6 +369,7 @@
             const files = await res.json();
             jsonFiles = files;
             jsonFilter = document.getElementById('txtJSONFilter').value || '';
+            selectedFile = null;
             renderJSONOptions();
             if(files.length === 0) {
                 lbl.innerText = "No files found in json_data/.";
@@ -349,9 +379,8 @@
         }
         
         async function loadJSON() {
-            const val = document.getElementById('selJSON').value;
             const lbl = document.getElementById('lblJSONStatus');
-            if(!val) {
+            if(!selectedFile) {
                 lbl.innerText = "Please select a JSON file first.";
                 lbl.className = "text-[10px] text-yellow-300 mt-2 h-3 text-center";
                 return;
@@ -360,13 +389,16 @@
             const res = await fetch('/api/load_json', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({param: "filepath", value: val})
+                body: JSON.stringify({param: "filepath", value: selectedFile})
             });
             const data = await res.json();
             if(data.success) {
                 lbl.innerText = data.message;
                 lbl.className = "text-[10px] text-emerald-500 mt-2 h-3 text-center";
                 await scanJSON();
+                document.getElementById('txtJSONFilter').value = '';
+                jsonFilter = '';
+                selectedFile = null;
                 setMode('JSON-ECG');
             } else {
                 lbl.innerText = "Error: " + data.message;
